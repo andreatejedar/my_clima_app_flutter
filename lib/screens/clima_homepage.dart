@@ -18,12 +18,13 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
   String? _temperatura;
   String _iconoUrl = '';
   bool _cargando = false;
-  //  bool _usarFahrenheit = false;
+  bool _usarFahrenheit = false;
 
   @override
   initState() {
     super.initState();
     _cargarCiudadGuardada();
+    _cargarPreferenciaUnidadTemperatura();
   }
 
   Future<void> obtenerClima(String ciudad) async {
@@ -38,11 +39,14 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
       _cargando = true;
     });
 
+    final unidades = _usarFahrenheit ? 'imperial' : 'metric';
+
     final apiKey = "3c5c7cd19d1e7b84c8e3bbf91d3174c5";
     final urlClima =
-        'https://api.openweathermap.org/data/2.5/weather?q=$ciudad&appid=$apiKey&units=metric&lang=es';
+        'https://api.openweathermap.org/data/2.5/weather?q=$ciudad&appid=$apiKey&units=$unidades&lang=es';
 
     final response = await http.get(Uri.parse(urlClima));
+
     try {
       if (response.statusCode == 200) {
         final datos = json.decode(response.body);
@@ -100,7 +104,10 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
         if (_ciudad.isNotEmpty)
           Text('Clima en ciudad $_ciudad', style: estiloTitulo),
         if (_temperatura != null)
-          Text('$_temperatura °C', style: estiloTemperatura),
+          Text(
+            '$_temperatura ${_usarFahrenheit ? '°F' : '°C'}',
+            style: estiloTemperatura,
+          ),
         if (_description.isNotEmpty)
           Text(_description, style: estiloDescripcion),
         if (_iconoUrl.isNotEmpty)
@@ -126,12 +133,38 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
             ),
             onSubmitted: obtenerClima,
           ),
-          SizedBox(height: 20),
+          SizedBox(height: 10),
+          cambioUnidadTemperatura(),
+          SizedBox(height: 10),
           if (_cargando) CircularProgressIndicator(),
           if (_ciudad.isNotEmpty && !_cargando) generaRespuesta(),
           if (_ciudad.isEmpty) generaRespuesta(),
         ],
       ),
+    );
+  }
+
+  Row cambioUnidadTemperatura() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text('°C'),
+        Switch(
+          value: _usarFahrenheit,
+          onChanged: (value) {
+            setState(() {
+              _usarFahrenheit = value;
+            });
+
+            _guardarPreferenciaUnidadTemperatura(value);
+            if (_controller.text.isNotEmpty) {
+              obtenerClima(_controller.text);
+            }
+          },
+        ),
+
+        Text('°F'),
+      ],
     );
   }
 
@@ -142,5 +175,17 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
       _controller.text = ciudadGuardada;
       obtenerClima(ciudadGuardada);
     }
+  }
+
+  void _guardarPreferenciaUnidadTemperatura(bool value) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('usarFahrenheit', value);
+  }
+
+  void _cargarPreferenciaUnidadTemperatura() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _usarFahrenheit = prefs.getBool('usarFahrenheit') ?? false;
+    });
   }
 }
