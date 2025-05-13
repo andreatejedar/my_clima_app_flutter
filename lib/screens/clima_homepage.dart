@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ClimaHomepage extends StatefulWidget {
   const ClimaHomepage({super.key});
@@ -22,6 +23,7 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
   @override
   initState() {
     super.initState();
+    _cargarCiudadGuardada();
   }
 
   Future<void> obtenerClima(String ciudad) async {
@@ -36,7 +38,7 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
       _cargando = true;
     });
 
-    // final apiKey = "3c5c7cd19d1e7b84c8e3bbf91d3174c5";
+    final apiKey = "3c5c7cd19d1e7b84c8e3bbf91d3174c5";
     final urlClima =
         'https://api.openweathermap.org/data/2.5/weather?q=$ciudad&appid=$apiKey&units=metric&lang=es';
 
@@ -131,5 +133,14 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
         ],
       ),
     );
+  }
+
+  void _cargarCiudadGuardada() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? ciudadGuardada = prefs.getString('ultimaCiudad');
+    if (ciudadGuardada != null) {
+      _controller.text = ciudadGuardada;
+      obtenerClima(ciudadGuardada);
+    }
   }
 }
