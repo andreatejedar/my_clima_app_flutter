@@ -19,12 +19,14 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
   String _iconoUrl = '';
   bool _cargando = false;
   bool _usarFahrenheit = false;
+  List<String> _favoritas = [];
 
   @override
   initState() {
     super.initState();
     _cargarCiudadGuardada();
     _cargarPreferenciaUnidadTemperatura();
+    _cargarCiudadesFavoritas();
   }
 
   Future<void> obtenerClima(String ciudad) async {
@@ -40,11 +42,9 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
     });
 
     final unidades = _usarFahrenheit ? 'imperial' : 'metric';
-
     final apiKey = "3c5c7cd19d1e7b84c8e3bbf91d3174c5";
     final urlClima =
         'https://api.openweathermap.org/data/2.5/weather?q=$ciudad&appid=$apiKey&units=$unidades&lang=es';
-
     final response = await http.get(Uri.parse(urlClima));
 
     try {
@@ -74,6 +74,18 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
     });
   }
 
+  Future<void> _guardarCiudadesFavoritas() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('favoritas', _favoritas);
+  }
+
+  Future<void> _cargarCiudadesFavoritas() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _favoritas = prefs.getStringList('favoritas') ?? [];
+    });
+  }
+
   Column generaRespuesta() {
     var estiloTitulo = TextStyle(
       color: Colors.black,
@@ -88,7 +100,6 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
       fontStyle: FontStyle.italic,
       fontFamily: "Arial Narrow",
     );
-
     var estiloTemperatura = TextStyle(
       color: Colors.black12,
       fontSize: 48,
@@ -112,9 +123,38 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
           Text(_description, style: estiloDescripcion),
         if (_iconoUrl.isNotEmpty)
           Image.network(_iconoUrl, height: 100, color: Colors.blueAccent),
+        if (_ciudad.isNotEmpty) agregarCiudadButton(),
       ],
     );
   }
+
+  ElevatedButton agregarCiudadButton() => ElevatedButton.icon(
+    onPressed: () {
+      if (!_favoritas.contains(_ciudad)) {
+        setState(() {
+          _favoritas.add(_ciudad);
+        });
+        _guardarCiudadesFavoritas();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$_ciudad, fue agregada exitosamente.')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$_ciudad, ya existe en favoritos.',
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+      }
+    },
+    icon: Icon(Icons.star),
+    label: Text('Agregar a favoritos'),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -122,17 +162,8 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          TextField(
-            controller: _controller,
-            decoration: InputDecoration(
-              labelText: "Ingresa tu ciudad",
-              suffixIcon: IconButton(
-                onPressed: () => obtenerClima(_controller.text),
-                icon: Icon(Icons.search),
-              ),
-            ),
-            onSubmitted: obtenerClima,
-          ),
+          if (_favoritas.isNotEmpty) favoritasComoBotones(),
+          campoTexto(),
           SizedBox(height: 10),
           cambioUnidadTemperatura(),
           SizedBox(height: 10),
@@ -141,6 +172,45 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
           if (_ciudad.isEmpty) generaRespuesta(),
         ],
       ),
+    );
+  }
+
+  Wrap favoritasComoBotones() {
+    return Wrap(
+      spacing: 8.0,
+      children:
+          _favoritas.map((e) {
+            return InputChip(
+              label: Text(e, style: TextStyle(color: Colors.deepOrangeAccent)),
+              onPressed: () {
+                _controller.text = e;
+                obtenerClima(e);
+              },
+              onDeleted: () {
+                setState(() {
+                  _favoritas.remove(e);
+                });
+                _guardarCiudadesFavoritas();
+              },
+              tooltip: 'Ciudades favoritas',
+              backgroundColor: Colors.orange[75],
+              shape: CircleBorder(eccentricity: 0.95),
+            );
+          }).toList(),
+    );
+  }
+
+  TextField campoTexto() {
+    return TextField(
+      controller: _controller,
+      decoration: InputDecoration(
+        labelText: "Ingresa tu ciudad",
+        suffixIcon: IconButton(
+          onPressed: () => obtenerClima(_controller.text),
+          icon: Icon(Icons.search),
+        ),
+      ),
+      onSubmitted: obtenerClima,
     );
   }
 
