@@ -1,7 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ClimaHomepage extends StatefulWidget {
@@ -27,6 +31,7 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
     _cargarCiudadGuardada();
     _cargarPreferenciaUnidadTemperatura();
     _cargarCiudadesFavoritas();
+    _cargarDatosDesdeArchivo();
   }
 
   Future<void> obtenerClima(String ciudad) async {
@@ -86,6 +91,88 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
     });
   }
 
+  Future<void> _obtenerUbicacionActual() async {
+    try {
+      LocationPermission permiso = await Geolocator.checkPermission();
+      if (permiso == LocationPermission.denied ||
+          permiso == LocationPermission.deniedForever) {
+        permiso = await Geolocator.requestPermission();
+      }
+
+      if (permiso == LocationPermission.denied ||
+          permiso == LocationPermission.deniedForever) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Permiso de ubicación denegado')),
+        );
+        return;
+      }
+
+      Position posicion = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // Convertir coordenadas a ciudad
+      List<Placemark> lugares = await placemarkFromCoordinates(
+        posicion.latitude,
+        posicion.longitude,
+      );
+      if (lugares.isNotEmpty) {
+        String ciudad = lugares[0].locality ?? 'Ciudad desconocida';
+        _controller.text = ciudad;
+        obtenerClima(ciudad);
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('No se pudo obtener la ciudad')));
+      }
+    } catch (e) {
+      print('Error al obtener ubicación: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al obtener ubicación')));
+    }
+  }
+
+  Future<File> _obtenerArchivo() async {
+    final directorio = await getApplicationDocumentsDirectory();
+    return File('${directorio.path}/datos_clima.json');
+  }
+
+  Future<void> _cargarDatosDesdeArchivo() async {
+    try {
+      final archivo = await _obtenerArchivo();
+
+      if (await archivo.exists()) {
+        String contenido = await archivo.readAsString();
+        Map<String, dynamic> datos = jsonDecode(contenido);
+
+        setState(() {
+          _ciudad = datos['ultimaCiudad'] ?? '';
+          _usarFahrenheit = datos['usarFahrenheit'] ?? false;
+          _favoritas = List<String>.from(datos['favoritas'] ?? []);
+        });
+
+        if (_ciudad.isNotEmpty) {
+          _controller.text = _ciudad;
+          obtenerClima(_ciudad);
+        }
+      }
+    } catch (e) {
+      print('Error al cargar json: $e');
+    }
+  }
+
+  Future<void> _guardarDatosEnArchivo() async {
+    final archivo = await _obtenerArchivo();
+
+    Map<String, dynamic> datos = {
+      'ultimaCiudad': _ciudad,
+      'usarFahrenheit': _usarFahrenheit,
+      'favoritas': _favoritas,
+    };
+    await archivo.writeAsString(jsonEncode(datos));
+  }
+
   Column generaRespuesta() {
     var estiloTitulo = TextStyle(
       color: Colors.black,
@@ -102,7 +189,7 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
     );
     var estiloTemperatura = TextStyle(
       color: Colors.black12,
-      fontSize: 48,
+      fontSize: 40,
       fontWeight: FontWeight.w300,
       fontStyle: FontStyle.normal,
     );
@@ -119,10 +206,16 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
             '$_temperatura ${_usarFahrenheit ? '°F' : '°C'}',
             style: estiloTemperatura,
           ),
-        if (_description.isNotEmpty)
-          Text(_description, style: estiloDescripcion),
-        if (_iconoUrl.isNotEmpty)
-          Image.network(_iconoUrl, height: 100, color: Colors.blueAccent),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_description.isNotEmpty)
+              Text(_description, style: estiloDescripcion),
+            if (_iconoUrl.isNotEmpty)
+              Image.network(_iconoUrl, height: 100, color: Colors.blueAccent),
+          ],
+        ),
         if (_ciudad.isNotEmpty) agregarCiudadButton(),
       ],
     );
@@ -159,13 +252,20 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(10.0),
       child: Column(
         children: [
           if (_favoritas.isNotEmpty) favoritasComoBotones(),
           campoTexto(),
-          SizedBox(height: 10),
-          cambioUnidadTemperatura(),
+          SizedBox(height: 5),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              cambioUnidadTemperatura(),
+              SizedBox(width: 5),
+              ubicacionActual(),
+            ],
+          ),
           SizedBox(height: 10),
           if (_cargando) CircularProgressIndicator(),
           if (_ciudad.isNotEmpty && !_cargando) generaRespuesta(),
@@ -175,13 +275,24 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
     );
   }
 
+  ElevatedButton ubicacionActual() {
+    return ElevatedButton.icon(
+      onPressed: _obtenerUbicacionActual,
+      icon: Icon(Icons.my_location),
+      label: Text('Ubicacion actual', style: TextStyle(fontSize: 10)),
+    );
+  }
+
   Wrap favoritasComoBotones() {
     return Wrap(
-      spacing: 8.0,
+      spacing: 5.0,
       children:
           _favoritas.map((e) {
             return InputChip(
-              label: Text(e, style: TextStyle(color: Colors.deepOrangeAccent)),
+              label: Text(
+                e,
+                style: TextStyle(color: Colors.deepOrange, fontSize: 10),
+              ),
               onPressed: () {
                 _controller.text = e;
                 obtenerClima(e);
@@ -194,7 +305,7 @@ class _ClimaHomepageState extends State<ClimaHomepage> {
               },
               tooltip: 'Ciudades favoritas',
               backgroundColor: Colors.orange[75],
-              shape: CircleBorder(eccentricity: 0.95),
+              shape: CircleBorder(eccentricity: 0.75),
             );
           }).toList(),
     );
